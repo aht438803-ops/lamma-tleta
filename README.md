@@ -1,16 +1,16 @@
 # لمّة تلاتة — نسخة GitHub Pages
 
-## الملفات
+ارفع `index.html` و`anime-friends.png` إلى جذر المستودع.
 
-ارفع الملفين `index.html` و`anime-friends.png` الموجودين في هذا المجلد إلى جذر مستودع GitHub.
+قبل استخدام الحفظ والمزامنة، شغّل محتوى `supabase-setup.sql` مرة واحدة في Supabase SQL Editor. الإعداد يضيف جداول الرسائل والذكريات والخروجات وإعداد الغلاف، مع تخزين صور خاص. لا يحذف جدول النسخة السابقة.
 
-## نشر الموقع
+## النشر
 
-1. افتح المستودع على GitHub ثم **Settings → Pages**.
-2. في **Build and deployment** اختر **Deploy from a branch**.
-3. اختر الفرع `main` والمجلد `/(root)` ثم اضغط **Save**.
-4. انتظر ظهور رابط الموقع في صفحة Pages. عادةً يكون على الشكل `https://USERNAME.github.io/REPOSITORY/`.
+1. من المستودع افتح **Settings → Pages**.
+2. اختر **Deploy from a branch**.
+3. اختر `main` ثم `/(root)` واضغط **Save**.
+4. بعد النشر افتح رابط الموقع وسجّل الدخول بحساب Supabase.
 
-بعد ظهور الرابط، أضفه في إعدادات Supabase تحت **Authentication → URL Configuration** كـ **Site URL** وضمن **Redirect URLs** حتى تعمل روابط الدعوة وتسجيل الدخول.
+المزايا: شات كامل مباشر، قائمة ذكريات بالصور، قائمة خروجات، تغيير غلاف مشترك، واسم تلقائي من الإيميل.
 
-مفتاح Supabase الموجود في الصفحة هو publishable key. لا تضف أبدًا مفتاح `secret` أو `service_role` إلى ملفات الموقع.
+استخدم مفتاح Supabase publishable الموجود في الصفحة فقط. لا ترفع مفتاح `secret` أو `service_role`.

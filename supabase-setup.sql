@@ -110,3 +110,137 @@ begin
   alter publication supabase_realtime add table public.friend_settings;
 exception when duplicate_object then null;
 end $$;
+
+-- Separate per-user app unlock password. The value is only stored as a bcrypt hash.
+create schema if not exists extensions;
+create extension if not exists pgcrypto with schema extensions;
+
+create table if not exists public.app_passcodes (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  pass_hash text not null,
+  failed_attempts integer not null default 0,
+  locked_until timestamptz,
+  updated_at timestamptz not null default now()
+);
+alter table public.app_passcodes add column if not exists failed_attempts integer not null default 0;
+alter table public.app_passcodes add column if not exists locked_until timestamptz;
+alter table public.app_passcodes enable row level security;
+revoke all on public.app_passcodes from anon, authenticated;
+
+create or replace function public.has_app_passcode()
+returns boolean
+language plpgsql
+security definer
+set search_path = public, extensions, pg_temp
+as $$
+begin
+  if auth.uid() is null then raise exception 'AUTH_REQUIRED' using errcode = '28000'; end if;
+  return exists (select 1 from public.app_passcodes where user_id = auth.uid());
+end;
+$$;
+
+create or replace function public.verify_app_passcode(p_password text)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, extensions, pg_temp
+as $$
+declare v public.app_passcodes%rowtype; v_attempts integer;
+begin
+  if auth.uid() is null then raise exception 'AUTH_REQUIRED' using errcode = '28000'; end if;
+  if p_password is null or char_length(p_password) > 128 then return false; end if;
+  select * into v from public.app_passcodes where user_id = auth.uid() for update;
+  if not found then return false; end if;
+  if v.locked_until is not null and v.locked_until > now() then return false; end if;
+  if v.pass_hash = crypt(p_password, v.pass_hash) then
+    update public.app_passcodes set failed_attempts = 0, locked_until = null where user_id = auth.uid();
+    return true;
+  end if;
+  v_attempts := case when v.locked_until is not null and v.locked_until <= now() then 1 else v.failed_attempts + 1 end;
+  update public.app_passcodes set failed_attempts = v_attempts,
+    locked_until = case when v_attempts >= 5 then now() + interval '15 minutes' else null end
+    where user_id = auth.uid();
+  return false;
+end;
+$$;
+
+create or replace function public.set_app_passcode(p_password text)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, extensions, pg_temp
+as $$
+begin
+  if auth.uid() is null then raise exception 'AUTH_REQUIRED' using errcode = '28000'; end if;
+  if p_password is null or char_length(p_password) < 8 or char_length(p_password) > 128 then
+    raise exception 'PASSWORD_LENGTH' using errcode = '22023';
+  end if;
+  insert into public.app_passcodes(user_id, pass_hash, failed_attempts, locked_until, updated_at)
+  values(auth.uid(), crypt(p_password, gen_salt('bf', 12)), 0, null, now())
+  on conflict (user_id) do nothing;
+  return found;
+end;
+$$;
+
+create or replace function public.change_app_passcode(p_current text, p_new text)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, extensions, pg_temp
+as $$
+declare v public.app_passcodes%rowtype; v_attempts integer;
+begin
+  if auth.uid() is null then raise exception 'AUTH_REQUIRED' using errcode = '28000'; end if;
+  if p_new is null or char_length(p_new) < 8 or char_length(p_new) > 128 then
+    raise exception 'PASSWORD_LENGTH' using errcode = '22023';
+  end if;
+  select * into v from public.app_passcodes where user_id = auth.uid() for update;
+  if not found then return false; end if;
+  if v.locked_until is not null and v.locked_until > now() then return false; end if;
+  if p_current is null or v.pass_hash <> crypt(p_current, v.pass_hash) then
+    v_attempts := case when v.locked_until is not null and v.locked_until <= now() then 1 else v.failed_attempts + 1 end;
+    update public.app_passcodes set failed_attempts = v_attempts,
+      locked_until = case when v_attempts >= 5 then now() + interval '15 minutes' else null end
+      where user_id = auth.uid();
+    return false;
+  end if;
+  update public.app_passcodes set pass_hash = crypt(p_new, gen_salt('bf', 12)), failed_attempts = 0, locked_until = null, updated_at = now()
+    where user_id = auth.uid();
+  return true;
+end;
+$$;
+
+-- Forgotten app password reset is allowed only just after the primary account re-authenticated.
+create or replace function public.reset_app_passcode(p_new_password text)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, extensions, pg_temp
+as $$
+declare v_iat bigint;
+begin
+  if auth.uid() is null then raise exception 'AUTH_REQUIRED' using errcode = '28000'; end if;
+  if p_new_password is null or char_length(p_new_password) < 8 or char_length(p_new_password) > 128 then
+    raise exception 'PASSWORD_LENGTH' using errcode = '22023';
+  end if;
+  v_iat := nullif(auth.jwt() ->> 'iat', '')::bigint;
+  if v_iat is null or extract(epoch from now())::bigint - v_iat > 600 then
+    raise exception 'REAUTH_REQUIRED' using errcode = '28000';
+  end if;
+  insert into public.app_passcodes(user_id, pass_hash, failed_attempts, locked_until, updated_at)
+  values(auth.uid(), crypt(p_new_password, gen_salt('bf', 12)), 0, null, now())
+  on conflict (user_id) do update set pass_hash = excluded.pass_hash, failed_attempts = 0, locked_until = null, updated_at = now();
+  return true;
+end;
+$$;
+
+revoke all on function public.has_app_passcode() from public, anon;
+revoke all on function public.verify_app_passcode(text) from public, anon;
+revoke all on function public.set_app_passcode(text) from public, anon;
+revoke all on function public.change_app_passcode(text, text) from public, anon;
+revoke all on function public.reset_app_passcode(text) from public, anon;
+grant execute on function public.has_app_passcode() to authenticated;
+grant execute on function public.verify_app_passcode(text) to authenticated;
+grant execute on function public.set_app_passcode(text) to authenticated;
+grant execute on function public.change_app_passcode(text, text) to authenticated;
+grant execute on function public.reset_app_passcode(text) to authenticated;

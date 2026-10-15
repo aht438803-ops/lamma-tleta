@@ -1,0 +1,15 @@
+{
+  "name": "لمّة تلاتة",
+  "short_name": "لمّة تلاتة",
+  "description": "مساحة خاصة تجمع شات وذكريات وخروجات أصحاب العمر",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#101318",
+  "theme_color": "#11151b",
+  "icons": [
+    { "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

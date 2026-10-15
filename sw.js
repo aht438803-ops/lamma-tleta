@@ -1,4 +1,4 @@
-const CACHE = 'lamma-shell-v3';
+const CACHE = 'lamma-shell-v4';
 const SHELL = ['./', './index.html', './anime-friends.png', './manifest.webmanifest', './icon.svg'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -25,3 +25,4 @@ self.addEventListener('fetch', event => {
     })));
   }
 });
+
